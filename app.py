@@ -455,10 +455,769 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🚨 Alerts"
 ])
 
-# ============================================================
+============================================================
 # TAB 1 — DASHBOARD
 # ============================================================
 with tab1:
     c1,c2,c3,c4,c5,c6 = st.columns(6)
     with c1: st.metric("💰 Invested",     f"₹{total_invested:,.0f}")
-    with 
+    with c2: st.metric("📈 Current",      f"₹{total_current:,.0f}")
+    with c3:
+        st.metric("P&L",
+                  f"₹{total_pnl:,.0f}",
+                  f"{total_pnl_pct:+.2f}%",
+                  delta_color="normal")
+    with c4:
+        profit_ct = sum(1 for d in prices.values() if d["pnl"] > 0)
+        st.metric("✅ Profit Stocks", f"{profit_ct}/18")
+    with c5:
+        sb = sum(1 for r in recs.values() if "STRONG BUY" in r["action"])
+        st.metric("🟢 Strong Buy", f"{sb} stocks")
+    with c6:
+        ex = sum(1 for r in recs.values()
+                 if "EXIT" in r["action"] or "REDUCE" in r["action"])
+        st.metric("🔴 Exit/Reduce", f"{ex} stocks")
+
+    st.divider()
+
+    if show_charts:
+        col1, col2 = st.columns([2,1])
+
+        with col1:
+            st.markdown("#### 📊 Portfolio P&L Overview")
+            names  = list(prices.keys())
+            pnls   = [prices[n]["pnl_pct"] for n in names]
+            colors = ["#64ffda" if p > 0 else "#ff6b6b" for p in pnls]
+            fig = go.Figure(go.Bar(
+                x=pnls, y=names, orientation='h',
+                marker_color=colors,
+                text=[f"{p:+.1f}%" for p in pnls],
+                textposition='outside'
+            ))
+            fig.update_layout(
+                height=520,
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#ccd6f6', size=11),
+                xaxis=dict(gridcolor='#3d4266', title="P&L %"),
+                yaxis=dict(gridcolor='#3d4266'),
+                margin=dict(l=0, r=70, t=10, b=0)
+            )
+            fig.add_vline(x=0, line_color="#8892b0", line_dash="dash")
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            st.markdown("#### 🥧 Sector Allocation")
+            sector_vals = {}
+            for name in PORTFOLIO:
+                sec = STOCK_SECTORS.get(name,"Other")
+                val = prices.get(name,{}).get("value",0)
+                sector_vals[sec] = sector_vals.get(sec,0) + val
+
+            fig2 = go.Figure(go.Pie(
+                labels=list(sector_vals.keys()),
+                values=list(sector_vals.values()),
+                hole=0.4,
+                marker=dict(colors=[
+                    '#64ffda','#4fc3f7','#ffd700',
+                    '#ffab40','#ff6b6b','#c792ea',
+                    '#89ddff','#f07178'
+                ])
+            ))
+            fig2.update_layout(
+                height=280,
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#ccd6f6', size=10),
+                showlegend=True,
+                legend=dict(font=dict(size=9)),
+                margin=dict(l=0,r=0,t=10,b=0)
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+
+            st.markdown("#### 📈 SIP Performance")
+            for mf in MUTUAL_FUNDS:
+                pnl_mf = mf["current"] - mf["invested"]
+                pnl_p  = round((pnl_mf/mf["invested"])*100,1)
+                st.metric(
+                    mf["name"][:32]+"...",
+                    f"₹{mf['current']:,.0f}",
+                    f"{pnl_p:+.1f}%",
+                    delta_color="normal" if pnl_mf>0 else "inverse"
+                )
+
+    st.divider()
+    st.markdown("#### 📋 Holdings Detail")
+
+    table_rows = []
+    for name, data in prices.items():
+        rec = recs.get(name,{})
+        table_rows.append({
+            "Stock":      name,
+            "Shares":     data["shares"],
+            "Invested":   f"₹{data['invested']:,.0f}",
+            "Current":    f"₹{data['value']:,.0f}",
+            "P&L ₹":      f"₹{data['pnl']:,.0f}",
+            "P&L %":      f"{data['pnl_pct']:+.2f}%",
+            "Action":     rec.get("action","—")
+        })
+
+    df = pd.DataFrame(table_rows)
+    st.dataframe(df, use_container_width=True, height=420)
+
+# ============================================================
+# TAB 2 — RECOMMENDATIONS
+# ============================================================
+with tab2:
+    st.markdown("### 📋 AI Recommendations — 4 Layer Analysis")
+    st.caption("Price + Sentiment + Fundamentals + Geopolitical")
+    st.divider()
+
+    filter_action = st.selectbox(
+        "Filter by Action",
+        ["All","Strong Buy","Hold/Add","Hold","Watch","Reduce","Exit"]
+    )
+
+    filter_map = {
+        "Strong Buy": "STRONG BUY", "Hold/Add": "HOLD / ADD",
+        "Hold": "HOLD", "Watch": "WATCH",
+        "Reduce": "REDUCE", "Exit": "EXIT"
+    }
+
+    groups = {
+        "🟢 STRONG BUY": [], "🟢 HOLD / ADD": [],
+        "🟡 HOLD": [],       "🟡 WATCH": [],
+        "🔴 REDUCE": [],     "🔴 EXIT": []
+    }
+
+    for stock, rec in recs.items():
+        clean = rec["action"].replace(" ⚠️","")
+        for key in groups:
+            if key in clean:
+                groups[key].append((stock, rec))
+                break
+
+    for action_type, stocks_list in groups.items():
+        if not stocks_list: continue
+        if filter_action != "All":
+            if filter_map.get(filter_action,"") not in action_type:
+                continue
+
+        st.markdown(f"#### {action_type} ({len(stocks_list)} stocks)")
+
+        for stock, rec in stocks_list:
+            pdata = prices.get(stock,{})
+            pnl   = pdata.get("pnl_pct",0)
+
+            c1,c2,c3,c4,c5 = st.columns([3,2,2,2,2])
+            with c1:
+                st.markdown(f"**{stock}**")
+                st.caption(STOCK_SECTORS.get(stock,"N/A"))
+            with c2:
+                st.metric("P&L",
+                          f"{pnl:+.1f}%",
+                          delta_color="normal" if pnl>0 else "inverse")
+            with c3:
+                st.metric("1W Signal", f"{rec['week']}%")
+            with c4:
+                st.metric("1M Signal", f"{rec['month']}%")
+            with c5:
+                st.metric("1Y Signal", f"{rec['year']}%")
+
+            with st.expander(f"📊 Score Breakdown — Total: {rec['total']}"):
+                sc1,sc2,sc3,sc4 = st.columns(4)
+                ps = (3 if pnl>30 else 2 if pnl>10 else 1 if pnl>0
+                      else -1 if pnl>-15 else -2 if pnl>-30 else -3)
+                with sc1: st.metric("💰 Price",        f"{ps:+d}")
+                with sc2: st.metric("📰 Sentiment",    f"{rec['sentiment']:+d}")
+                with sc3: st.metric("📊 Fundamentals", f"{rec['fund_score']:+d}")
+                with sc4: st.metric("🌍 Geopolitical", f"{rec['geo']:+d}")
+
+                if show_news:
+                    hl = sentiment.get(stock,{}).get("headlines",[])
+                    if hl:
+                        st.markdown("**Latest News:**")
+                        for h in hl[:2]:
+                            st.caption(f"→ {h[:100]}")
+            st.divider()
+
+# ============================================================
+# TAB 3 — NIFTY 50 SCANNER
+# ============================================================
+with tab3:
+    st.markdown("### 🔍 Nifty 50 Opportunity Scanner")
+    st.caption("Find new stocks to invest in — not in your current portfolio")
+    st.divider()
+
+    if st.button("🔍 Scan Nifty 50 Now", type="primary"):
+        with st.spinner("Scanning Nifty 50 stocks... (~2 mins)"):
+            nifty_data = scan_nifty50()
+
+        new_opps = {
+            k: v for k,v in nifty_data.items()
+            if not v.get("already") and v.get("score",0) >= 4
+        }
+        top10 = sorted(new_opps.items(),
+                       key=lambda x: x[1]["score"],
+                       reverse=True)[:10]
+
+        st.success(f"✅ Scan complete! Found {len(top10)} opportunities.")
+        st.divider()
+
+        for rank, (name, data) in enumerate(top10, 1):
+            score = data.get("score",0)
+            w52   = data.get("w52",50)
+
+            if score>=12:   rating, icon = "⭐⭐⭐ STRONG BUY", "🟢"
+            elif score>=9:  rating, icon = "⭐⭐ BUY",          "🟢"
+            elif score>=6:  rating, icon = "⭐ WATCH & BUY",   "🟡"
+            else:           rating, icon = "👀 ON RADAR",       "⚪"
+
+            with st.expander(
+                f"{icon} #{rank} {name} — {rating} (Score: {score})"
+            ):
+                c1,c2,c3,c4,c5 = st.columns(5)
+                with c1: st.metric("Sector", data.get("sector","N/A"))
+                with c2:
+                    st.metric("PE",
+                              f"{data['pe']:.1f}" if data.get("pe") else "N/A")
+                with c3:
+                    st.metric("PB",
+                              f"{data['pb']:.1f}" if data.get("pb") else "N/A")
+                with c4:
+                    st.metric("ROE",
+                              f"{data['roe']:.1f}%" if data.get("roe") else "N/A")
+                with c5:
+                    entry = ("✅ Good entry" if w52<35 else
+                             "🟡 Wait for dip" if w52<60 else
+                             "⏳ Near 52W High")
+                    st.metric("52W Pos", f"{w52:.0f}%", entry)
+    else:
+        st.info(
+            "👆 Click **'Scan Nifty 50 Now'** to find new "
+            "investment opportunities not in your portfolio."
+        )
+
+# ============================================================
+# TAB 4 — SIP SUGGESTIONS
+# ============================================================
+with tab4:
+    st.markdown("### 💡 Personalized SIP Recommendations")
+    st.caption(
+        "Based on: Risk Profile + Portfolio Gaps + "
+        "Market Conditions + Geopolitical Signals"
+    )
+    st.divider()
+
+    monthly = 5000
+    rate    = 13/100/12
+    months  = 120
+    fv      = monthly * (((1+rate)**months - 1)/rate) * (1+rate)
+    inv     = monthly * months
+    fv_fd   = inv * ((1+0.065)**10)
+
+    c1,c2,c3,c4 = st.columns(4)
+    with c1: st.metric("Monthly SIP",    f"₹{monthly:,}")
+    with c2: st.metric("10Y Projection", f"₹{fv:,.0f}")
+    with c3: st.metric("FD Value",       f"₹{fv_fd:,.0f}")
+    with c4: st.metric("Extra vs FD",    f"+₹{fv-fv_fd:,.0f}")
+
+    st.divider()
+
+    if show_charts:
+        months_r  = list(range(1,121))
+        sip_vals  = [monthly*(((1+rate)**m-1)/rate)*(1+rate)
+                     for m in months_r]
+        fd_vals   = [monthly*m*(1+0.065)**(m/12) for m in months_r]
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=months_r, y=sip_vals,
+            name="SIP (13% CAGR)",
+            line=dict(color="#64ffda", width=2)
+        ))
+        fig.add_trace(go.Scatter(
+            x=months_r, y=fd_vals,
+            name="FD (6.5%)",
+            line=dict(color="#ff6b6b", width=2, dash='dash')
+        ))
+        fig.update_layout(
+            title="SIP vs FD — 10 Year Wealth Growth",
+            height=280,
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(color='#ccd6f6'),
+            xaxis=dict(title="Months", gridcolor='#3d4266'),
+            yaxis=dict(title="Value ₹", gridcolor='#3d4266'),
+            legend=dict(bgcolor='rgba(0,0,0,0)'),
+            margin=dict(l=0,r=0,t=40,b=0)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("#### 🎯 Recommended SIPs")
+    for sip in SIP_RECS:
+        with st.expander(
+            f"#{sip['priority']} {sip['fund']} — "
+            f"₹{sip['amount']:,}/month | {sip['action']}"
+        ):
+            c1,c2,c3 = st.columns(3)
+            with c1: st.metric("Monthly", f"₹{sip['amount']:,}")
+            with c2: st.metric("Risk",    sip["risk"])
+            with c3: st.metric("CAGR",    sip["cagr"])
+            st.caption(f"**Examples:** {sip['examples']}")
+            st.info(f"💡 {sip['why']}")
+
+# ============================================================
+# TAB 5 — GEOPOLITICAL
+# ============================================================
+with tab5:
+    st.markdown("### 🌍 Geopolitical & Macro Factor Analysis")
+    st.divider()
+
+    for factor, details in GEO_FACTORS.items():
+        sev   = details["severity"]
+        icon  = "🔴" if sev=="HIGH" else "🟡"
+        with st.expander(f"{icon} {factor} — {sev} Severity"):
+            c1,c2,c3 = st.columns(3)
+            with c1:
+                st.markdown("**Affected Sectors**")
+                st.caption(", ".join(details["sectors"]))
+            with c2:
+                st.markdown("**Portfolio Impact**")
+                st.caption(details["impact"])
+            with c3:
+                st.markdown("**Severity**")
+                st.caption(sev)
+
+    st.divider()
+    st.markdown("#### 📊 Geopolitical Score Per Stock")
+
+    geo_rows = [
+        {
+            "Stock":      stock,
+            "Sector":     STOCK_SECTORS.get(stock,"N/A"),
+            "Geo Score":  score,
+            "Signal":     ("🟢 Tailwind" if score>2 else
+                           "🟢 Mild"     if score>0 else
+                           "🟡 Neutral"  if score==0 else
+                           "🔴 Headwind")
+        }
+        for stock, score in geo_scores.items()
+    ]
+    geo_df = pd.DataFrame(geo_rows).sort_values("Geo Score", ascending=False)
+    st.dataframe(geo_df, use_container_width=True)
+
+# ============================================================
+# TAB 6 — ALERTS
+# ============================================================
+with tab6:
+    st.markdown("### 🚨 Daily Action Alerts")
+    st.divider()
+
+    alerts = []
+    for name, data in prices.items():
+        p = data["pnl_pct"]
+        if p <= -50:
+            alerts.append(("🔴 CRITICAL EXIT",  name, p,
+                           "Exit immediately — severe capital loss"))
+        elif p <= -35:
+            alerts.append(("🔴 EXIT ALERT",     name, p,
+                           "Review urgently — significant loss"))
+        elif p <= -25:
+            alerts.append(("⚠️ REVIEW",         name, p,
+                           "Monitor closely — notable underperformance"))
+        elif p >= 50:
+            alerts.append(("✅ BOOK PROFIT",    name, p,
+                           "Consider partial profit booking"))
+        elif p >= 25:
+            alerts.append(("💰 WATCH PROFIT",   name, p,
+                           "Good gain — watch for exit opportunity"))
+
+    if alerts:
+        for atype, name, pnl, note in alerts:
+            msg = f"**{atype}** | {name} | {pnl:+.1f}% | {note}"
+            if "CRITICAL" in atype or "EXIT ALERT" in atype:
+                st.error(msg)
+            elif "REVIEW" in atype:
+                st.warning(msg)
+            else:
+                st.success(msg)
+    else:
+        st.success("✅ No critical alerts today — portfolio is stable")
+
+    if show_news:
+        st.divider()
+        st.markdown("#### 📰 Latest News — Top 5 Holdings")
+        top5 = sorted(PORTFOLIO.items(),
+                      key=lambda x: x[1]["invested"],
+                      reverse=True)[:5]
+        for name, _ in top5:
+            hl = sentiment.get(name,{}).get("headlines",[])
+            with st.expander(f"📌 {name}"):
+                if hl:
+                    for h in hl[:3]:
+                        st.caption(f"→ {h}")
+                else:
+                    st.caption("No recent news found")
+
+# ============================================================
+# FOOTER
+# ============================================================
+st.divider()
+st.markdown("""
+<div style='text-align:center;color:#8892b0;font-size:11px;padding:8px'>
+    🤖 AI Portfolio Analyser v3.0 | Built by Takhar & Claude AI |
+    ⚠️ Not SEBI registered | Personal research only |
+    Not financial advice
+</div>
+""", unsafe_allow_html=True) 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
