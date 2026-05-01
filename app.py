@@ -869,7 +869,7 @@ st.markdown("""
     ⚠️ Not SEBI registered | Personal research only |
     Not financial advice
 </div>
-""", unsafe_allow_html=True) 
+""", unsafe_allow_html=True)
 
 
 
