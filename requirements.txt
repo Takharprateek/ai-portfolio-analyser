@@ -7,5 +7,4 @@ scikit-learn
 xgboost
 streamlit
 plotly
-streamlit
 nltk
