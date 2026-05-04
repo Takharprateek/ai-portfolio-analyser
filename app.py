@@ -1168,19 +1168,14 @@ with tab3:
         for name, m in risk_metrics.items():
             pnl = prices.get(name, {}).get("pnl_pct", 0)
 
-            if m.get("risk_grade") == "LOW":       risk_color = "LOW"
-            elif m.get("risk_grade") == "MEDIUM":  risk_color = "MEDIUM"
-            elif m.get("risk_grade") == "HIGH":    risk_color = "HIGH"
-            else:                                   risk_color = "VERY HIGH"
-
             risk_rows.append({
-                "Stock":        name,
+                "Stock": name,
                 "Volatility %": f"{m['volatility']:.1f}" if m.get("volatility") else "N/A",
-                "Sharpe Ratio": f"{m['sharpe']:.2f}"     if m.get("sharpe")     else "N/A",
-                "Beta":         f"{m['beta']:.2f}"       if m.get("beta")       else "N/A",
+                "Sharpe Ratio": f"{m['sharpe']:.2f}" if m.get("sharpe") else "N/A",
+                "Beta": f"{m['beta']:.2f}" if m.get("beta") else "N/A",
                 "Max Drawdown": f"{m['max_drawdown']:.1f}%" if m.get("max_drawdown") else "N/A",
-                "Risk Grade":   m.get("risk_grade", "N/A"),
-                "P&L %":        f"{pnl:+.1f}%"
+                "Risk Grade": m.get("risk_grade", "N/A"),
+                "P&L %": f"{pnl:+.1f}%"
             })
 
         risk_df = pd.DataFrame(risk_rows)
