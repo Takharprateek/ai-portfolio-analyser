@@ -7,4 +7,4 @@ scikit-learn
 xgboost
 streamlit
 plotly
-nltk
+vaderSentiment
