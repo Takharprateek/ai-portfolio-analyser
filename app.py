@@ -1712,3 +1712,4 @@ st.divider()
 st.caption(
     "AI Portfolio Analyser v4.0 | Built by Takhar & Claude AI | "
     "6-Layer Intelligence | Not SEBI registered | Personal research only | Not financial advice"
+)
