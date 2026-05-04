@@ -1152,7 +1152,8 @@ with tab3:
             "Flawed scoring = flawed allocation. Always apply your own judgment. "
             "Never invest more than you can afford to lose in any single stock."
     )
-        with tab4:
+
+with tab4:
     st.markdown("### Risk Analysis — Volatility, Sharpe Ratio & Beta")
     st.caption(
         "Risk-adjusted view of your portfolio. "
